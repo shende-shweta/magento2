@@ -38,7 +38,8 @@ class StateTest extends TestCase
         );
     }
 
-    /**     * @param bool $expectedIsEnabled
+    /**
+     * @param bool $expectedIsEnabled
      */
     #[DataProvider('isEnabledDataProvider')]
     public function testIsEnabled($cacheType, $config, $banAll, $expectedIsEnabled)
@@ -142,6 +143,18 @@ class StateTest extends TestCase
         $model->setEnabled('other_cache_type', false);
         $configValue = [ConfigFilePool::APP_ENV => ['cache_types' => ['other_cache_type' => 0]]];
         $this->writer->expects($this->once())->method('saveConfig')->with($configValue);
+        $model->persist();
+    }
+
+    public function testResetStateClearsInMemoryMutationTracking(): void
+    {
+        $model = new State($this->config, $this->writer);
+        $this->config->expects($this->exactly(2))
+            ->method('getConfigData')
+            ->willReturn(['test_cache_type' => true]);
+        $model->setEnabled('test_cache_type', false);
+        $model->_resetState();
+        $this->writer->expects($this->never())->method('saveConfig');
         $model->persist();
     }
 }
