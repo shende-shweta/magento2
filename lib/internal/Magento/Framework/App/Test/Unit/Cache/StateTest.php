@@ -121,7 +121,7 @@ class StateTest extends TestCase
     }
 
     /**
-     * SCRUM-100: disabling one cache type must not persist the full merged map to env.php.
+     * SCRUM-105: disabling one cache type must not persist the full merged map to env.php.
      */
     public function testPersistWritesOnlyMutatedCacheTypes(): void
     {
