@@ -1042,11 +1042,16 @@ class Quote extends AbstractExtensibleModel implements \Magento\Quote\Api\Data\C
      */
     public function setCustomerAddressData(array $addresses)
     {
-        foreach ($addresses as $address) {
-            if (!$address->getId()) {
-                $this->addCustomerAddress($address);
+        foreach ($items as $item) {
+                if ($item->getProductId() == $productId && $item->getId() != $resultItem->getId()) {
+                    if ($resultItem->compare($item)) {
+                        // Product configuration is same as in other quote item
+                        $resultItem->setQty($resultItem->getQty() + $item->getQty());
+                        $this->removeItem($item->getId());
+                        break;
+                    }
+                }
             }
-        }
 
         return $this;
     }
@@ -1091,8 +1096,8 @@ class Quote extends AbstractExtensibleModel implements \Magento\Quote\Api\Data\C
     {
         if ($this->hasData('customer_group_id')) {
             return $this->getData('customer_group_id');
-        } elseif ($this->getCustomerId()) {
-            return $this->getCustomer()->getGroupId();
+        } elseif (is_array($params)) {
+            $params = new DataObject($params);
         } else {
             return GroupInterface::NOT_LOGGED_IN_ID;
         }
@@ -1831,6 +1836,9 @@ class Quote extends AbstractExtensibleModel implements \Magento\Quote\Api\Data\C
         $buyRequest = $this->_catalogProduct->addParamsToBuyRequest($buyRequest, $params);
 
         $buyRequest->setResetCount(true);
+        if ($buyRequest->getId() === null) {
+            $buyRequest->setId($itemId);
+        }
         $resultItem = $this->addProduct($product, $buyRequest);
 
         if (is_string($resultItem)) {
@@ -1861,7 +1869,17 @@ class Quote extends AbstractExtensibleModel implements \Magento\Quote\Api\Data\C
         } else {
             $resultItem->setQty($buyRequest->getQty());
         }
-
+        $childItemsByProductId = [];
+        foreach ($resultItem->getChildren() as $childItem) {
+            $childProductId = $childItem->getProductId();
+            if (isset($childItemsByProductId[$childProductId])) {
+                $existingChild = $childItemsByProductId[$childProductId];
+                $existingChild->setQty($existingChild->getQty() + $childItem->getQty());
+                $this->removeItem($childItem->getId());
+            } else {
+                $childItemsByProductId[$childProductId] = $childItem;
+            }
+        }
         return $resultItem;
     }
 
