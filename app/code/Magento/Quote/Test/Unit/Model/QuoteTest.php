@@ -8,6 +8,8 @@ declare(strict_types=1);
 namespace Magento\Quote\Test\Unit\Model;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use Magento\Catalog\Api\ProductRepositoryInterface;
+use Magento\Catalog\Helper\Product as CatalogProductHelper;
 use Magento\Catalog\Model\Product;
 use Magento\Catalog\Model\Product\Type\Simple;
 use Magento\Customer\Api\AddressRepositoryInterface;
@@ -1417,4 +1419,141 @@ class QuoteTest extends TestCase
             'id_not_in_use' => [false, 1000001]
         ];
     }
+
+    /**
+     * SCRUM-106: duplicate configurable child lines after updateItem must merge by product_id.
+     */
+    public function testUpdateItemMergesDuplicateChildItemsByProductId(): void
+    {
+        $itemId = 10;
+        $productId = 100;
+        $childProductId = 501;
+
+        $productMock = $this->createMock(Product::class);
+        $productMock->method('getId')->willReturn($productId);
+
+        $quoteItem = $this->createMock(Item::class);
+        $quoteItem->method('getProduct')->willReturn($productMock);
+        $quoteItem->method('getBuyRequest')->willReturn(new DataObject(['qty' => 2]));
+
+        $storeMock = $this->createMock(Store::class);
+        $storeMock->method('getId')->willReturn(1);
+
+        $buyRequest = new DataObject(['qty' => 2]);
+
+        $catalogProductMock = $this->createMock(CatalogProductHelper::class);
+        $catalogProductMock->expects($this->once())
+            ->method('addParamsToBuyRequest')
+            ->willReturn($buyRequest);
+
+        $productRepositoryMock = $this->createMock(ProductRepositoryInterface::class);
+        $productRepositoryMock->method('getById')
+            ->with($productId, false, 1)
+            ->willReturn($productMock);
+
+        $existingChild = $this->createMock(Item::class);
+        $existingChild->method('getProductId')->willReturn($childProductId);
+        $existingChild->method('getId')->willReturn(201);
+        $existingChild->method('getQty')->willReturn(1.0);
+        $existingChild->expects($this->once())->method('setQty')->with(2.0);
+
+        $duplicateChild = $this->createMock(Item::class);
+        $duplicateChild->method('getProductId')->willReturn($childProductId);
+        $duplicateChild->method('getId')->willReturn(202);
+
+        $resultItem = $this->createMock(Item::class);
+        $resultItem->method('getParentItem')->willReturn(null);
+        $resultItem->method('getId')->willReturn($itemId);
+        $resultItem->method('getChildren')->willReturn([$existingChild, $duplicateChild]);
+        $resultItem->expects($this->once())->method('setQty')->with(2);
+
+        /** @var Quote|MockObject $quote */
+        $quote = $this->getMockBuilder(Quote::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getItemById', 'getStore', 'addProduct', 'removeItem'])
+            ->getMock();
+
+        $quote->method('getItemById')->with($itemId)->willReturn($quoteItem);
+        $quote->method('getStore')->willReturn($storeMock);
+        $quote->method('addProduct')->willReturn($resultItem);
+        $quote->expects($this->once())->method('removeItem')->with(202);
+
+        $this->setQuotePrivateDependency($quote, 'productRepository', $productRepositoryMock);
+        $this->setQuotePrivateDependency($quote, '_catalogProduct', $catalogProductMock);
+
+        $request = new DataObject(['id' => $itemId, 'qty' => 2]);
+        $result = $quote->updateItem($itemId, $request);
+        $this->assertSame($resultItem, $result);
+    }
+
+    /**
+     * SCRUM-106: buy request id should default to quote item id for stable child matching.
+     */
+    public function testUpdateItemSetsBuyRequestIdWhenMissing(): void
+    {
+        $itemId = 15;
+        $productId = 200;
+
+        $productMock = $this->createMock(Product::class);
+        $productMock->method('getId')->willReturn($productId);
+
+        $quoteItem = $this->createMock(Item::class);
+        $quoteItem->method('getProduct')->willReturn($productMock);
+        $quoteItem->method('getBuyRequest')->willReturn(new DataObject());
+
+        $storeMock = $this->createMock(Store::class);
+        $storeMock->method('getId')->willReturn(1);
+
+        $catalogProductMock = $this->createMock(CatalogProductHelper::class);
+        $catalogProductMock->method('addParamsToBuyRequest')
+            ->willReturnCallback(static function ($buyRequest) {
+                return $buyRequest;
+            });
+
+        $productRepositoryMock = $this->createMock(ProductRepositoryInterface::class);
+        $productRepositoryMock->method('getById')->willReturn($productMock);
+
+        $resultItem = $this->createMock(Item::class);
+        $resultItem->method('getParentItem')->willReturn(null);
+        $resultItem->method('getId')->willReturn($itemId);
+        $resultItem->method('getChildren')->willReturn([]);
+        $resultItem->method('setQty');
+
+        /** @var Quote|MockObject $quote */
+        $quote = $this->getMockBuilder(Quote::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getItemById', 'getStore', 'addProduct', 'removeItem'])
+            ->getMock();
+
+        $quote->method('getItemById')->willReturn($quoteItem);
+        $quote->method('getStore')->willReturn($storeMock);
+        $quote->expects($this->once())
+            ->method('addProduct')
+            ->with(
+                $this->anything(),
+                $this->callback(static function ($buyRequest) use ($itemId) {
+                    return $buyRequest instanceof DataObject && (int)$buyRequest->getId() === $itemId;
+                })
+            )
+            ->willReturn($resultItem);
+        $quote->expects($this->never())->method('removeItem');
+
+        $this->setQuotePrivateDependency($quote, 'productRepository', $productRepositoryMock);
+        $this->setQuotePrivateDependency($quote, '_catalogProduct', $catalogProductMock);
+
+        $request = new DataObject(['qty' => 1]);
+        $quote->updateItem($itemId, $request);
+    }
+
+    /**
+     * @param Quote|MockObject $quote
+     */
+    private function setQuotePrivateDependency($quote, string $property, object $value): void
+    {
+        $ref = new ReflectionProperty(Quote::class, $property);
+        $ref->setAccessible(true);
+        $ref->setValue($quote, $value);
+    }
+
+
 }
