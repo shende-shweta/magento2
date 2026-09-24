@@ -8,6 +8,7 @@ namespace Magento\Sales\Model\Order\Creditmemo\Total;
 use Magento\Framework\Pricing\PriceCurrencyInterface;
 use Magento\Tax\Model\Calculation as TaxCalculation;
 use Magento\Sales\Model\Order;
+use Magento\Sales\Model\Order\Creditmemo;
 
 /**
  * Order creditmemo shipping total calculation model
@@ -161,6 +162,9 @@ class Shipping extends AbstractTotal
         $refundedShippingInclTax = 0.0;
         $baseRefundedShippingInclTax = 0.0;
         foreach ($order->getCreditmemosCollection() as $existingCreditmemo) {
+            if ($existingCreditmemo->getState() === Creditmemo::STATE_CANCELED) {
+                continue;
+            }
             if ((int)$existingCreditmemo->getInvoiceId() !== (int)$invoice->getId()) {
                 continue;
             }
@@ -214,6 +218,9 @@ class Shipping extends AbstractTotal
         if ($this->isShippingIncludeTaxWithTaxAfterDiscount($order)) {
             $result = $order->getShippingInclTax();
             foreach ($order->getCreditmemosCollection() as $creditmemo) {
+                if ($creditmemo->getState() === Creditmemo::STATE_CANCELED) {
+                    continue;
+                }
                 $result -= $creditmemo->getShippingInclTax();
             }
         } else {
@@ -235,6 +242,9 @@ class Shipping extends AbstractTotal
         $result = $order->getBaseShippingInclTax();
         if ($this->isShippingIncludeTaxWithTaxAfterDiscount($order)) {
             foreach ($order->getCreditmemosCollection() as $creditmemo) {
+                if ($creditmemo->getState() === Creditmemo::STATE_CANCELED) {
+                    continue;
+                }
                 $result -= $creditmemo->getBaseShippingInclTax();
             }
         } else {

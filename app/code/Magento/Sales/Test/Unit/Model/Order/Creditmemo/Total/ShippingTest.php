@@ -889,4 +889,171 @@ class ShippingTest extends TestCase
 
         $this->shippingCollector->collect($creditmemo);
     }
+
+    /**
+     * SCRUM-104 / PR review: canceled credit memos must not reduce invoice shipping cap (gateway-decline scenario).
+     *
+     * @throws LocalizedException
+     */
+    public function testCollectInvoiceShippingCapIgnoresCanceledCreditmemosOnSameInvoice(): void
+    {
+        $this->taxConfig->expects($this->any())->method('displaySalesShippingInclTax')->willReturn(false);
+
+        $invoice = $this->createConfiguredMock(
+            Invoice::class,
+            [
+                'getId' => 200,
+                'getShippingAmount' => 10.0,
+                'getBaseShippingAmount' => 20.0,
+                'getShippingInclTax' => 12.0,
+                'getBaseShippingInclTax' => 24.0,
+            ]
+        );
+
+        $canceledCreditmemo = $this->createConfiguredMock(
+            Creditmemo::class,
+            [
+                'getId' => 601,
+                'getInvoiceId' => 200,
+                'getState' => Creditmemo::STATE_CANCELED,
+                'getShippingAmount' => 10.0,
+                'getBaseShippingAmount' => 20.0,
+                'getShippingInclTax' => 12.0,
+                'getBaseShippingInclTax' => 24.0,
+            ]
+        );
+
+        $order = $this->getOrderMock(
+            [
+                'shipping_amount' => 10.0,
+                'shipping_refunded' => 10.0,
+                'base_shipping_amount' => 20.0,
+                'base_shipping_refunded' => 20.0,
+                'shipping_incl_tax' => 12.0,
+                'base_shipping_incl_tax' => 24.0,
+                'shipping_tax_amount' => 2.0,
+                'shipping_tax_refunded' => 2.0,
+                'base_shipping_tax_amount' => 4.0,
+                'base_shipping_tax_refunded' => 4.0,
+            ]
+        );
+        $order->method('getCreditmemosCollection')->willReturn([$canceledCreditmemo]);
+
+        $creditmemo = $this->createPartialMockWithReflection(
+            Creditmemo::class,
+            [
+                'hasBaseShippingAmount', 'getOrder', 'getInvoice', 'getId',
+                'setShippingAmount', 'setBaseShippingAmount', 'setShippingInclTax', 'setBaseShippingInclTax',
+                'setGrandTotal', 'setBaseGrandTotal', 'getGrandTotal', 'getBaseGrandTotal',
+            ]
+        );
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getInvoice')->willReturn($invoice);
+        $creditmemo->method('getId')->willReturn(602);
+        $creditmemo->method('hasBaseShippingAmount')->willReturn(false);
+        $creditmemo->method('getGrandTotal')->willReturn(40.0);
+        $creditmemo->method('getBaseGrandTotal')->willReturn(80.0);
+
+        $creditmemo->expects($this->once())->method('setShippingAmount')->with(10.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setBaseShippingAmount')->with(20.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setShippingInclTax')->with(12.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setBaseShippingInclTax')->with(24.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setGrandTotal')->with(50.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setBaseGrandTotal')->with(100.0)->willReturnSelf();
+
+        $this->shippingCollector->collect($creditmemo);
+    }
+
+    /**
+     * magento/magento2#41277 class: bogus CM on a no-shipping invoice must not block a later CM on a shipping invoice.
+     *
+     * @throws LocalizedException
+     */
+    public function testCollectTwoCreditmemosBogusNoShippingThenLegitimateInvoiceShipping(): void
+    {
+        $this->taxConfig->expects($this->any())->method('displaySalesShippingInclTax')->willReturn(false);
+
+        $invoiceNoShipping = $this->createConfiguredMock(
+            Invoice::class,
+            [
+                'getId' => 301,
+                'getShippingAmount' => 0.0,
+                'getBaseShippingAmount' => 0.0,
+                'getShippingInclTax' => 0.0,
+                'getBaseShippingInclTax' => 0.0,
+            ]
+        );
+        $invoiceWithShipping = $this->createConfiguredMock(
+            Invoice::class,
+            [
+                'getId' => 302,
+                'getShippingAmount' => 10.0,
+                'getBaseShippingAmount' => 20.0,
+                'getShippingInclTax' => 12.0,
+                'getBaseShippingInclTax' => 24.0,
+            ]
+        );
+
+        $order = $this->getOrderMock(
+            [
+                'shipping_amount' => 10.0,
+                'shipping_refunded' => 0.0,
+                'base_shipping_amount' => 20.0,
+                'base_shipping_refunded' => 0.0,
+                'shipping_incl_tax' => 12.0,
+                'base_shipping_incl_tax' => 24.0,
+                'shipping_tax_amount' => 2.0,
+                'shipping_tax_refunded' => 0.0,
+                'base_shipping_tax_amount' => 4.0,
+                'base_shipping_tax_refunded' => 0.0,
+            ]
+        );
+        $order->method('getCreditmemosCollection')->willReturn([]);
+
+        $bogusCreditmemo = $this->createPartialMockWithReflection(
+            Creditmemo::class,
+            [
+                'hasBaseShippingAmount', 'getOrder', 'getInvoice', 'getId',
+                'setShippingAmount', 'setBaseShippingAmount', 'setShippingInclTax', 'setBaseShippingInclTax',
+                'setGrandTotal', 'setBaseGrandTotal', 'getGrandTotal', 'getBaseGrandTotal',
+            ]
+        );
+        $bogusCreditmemo->method('getOrder')->willReturn($order);
+        $bogusCreditmemo->method('getInvoice')->willReturn($invoiceNoShipping);
+        $bogusCreditmemo->method('getId')->willReturn(null);
+        $bogusCreditmemo->method('hasBaseShippingAmount')->willReturn(false);
+        $bogusCreditmemo->method('getGrandTotal')->willReturn(100.0);
+        $bogusCreditmemo->method('getBaseGrandTotal')->willReturn(200.0);
+        $bogusCreditmemo->expects($this->once())->method('setShippingAmount')->with(0.0)->willReturnSelf();
+        $bogusCreditmemo->expects($this->once())->method('setBaseShippingAmount')->with(0.0)->willReturnSelf();
+        $bogusCreditmemo->expects($this->once())->method('setShippingInclTax')->with(0.0)->willReturnSelf();
+        $bogusCreditmemo->expects($this->once())->method('setBaseShippingInclTax')->with(0.0)->willReturnSelf();
+        $bogusCreditmemo->expects($this->once())->method('setGrandTotal')->with(100.0)->willReturnSelf();
+        $bogusCreditmemo->expects($this->once())->method('setBaseGrandTotal')->with(200.0)->willReturnSelf();
+
+        $this->shippingCollector->collect($bogusCreditmemo);
+
+        $legitimateCreditmemo = $this->createPartialMockWithReflection(
+            Creditmemo::class,
+            [
+                'hasBaseShippingAmount', 'getOrder', 'getInvoice', 'getId',
+                'setShippingAmount', 'setBaseShippingAmount', 'setShippingInclTax', 'setBaseShippingInclTax',
+                'setGrandTotal', 'setBaseGrandTotal', 'getGrandTotal', 'getBaseGrandTotal',
+            ]
+        );
+        $legitimateCreditmemo->method('getOrder')->willReturn($order);
+        $legitimateCreditmemo->method('getInvoice')->willReturn($invoiceWithShipping);
+        $legitimateCreditmemo->method('getId')->willReturn(null);
+        $legitimateCreditmemo->method('hasBaseShippingAmount')->willReturn(false);
+        $legitimateCreditmemo->method('getGrandTotal')->willReturn(50.0);
+        $legitimateCreditmemo->method('getBaseGrandTotal')->willReturn(100.0);
+        $legitimateCreditmemo->expects($this->once())->method('setShippingAmount')->with(10.0)->willReturnSelf();
+        $legitimateCreditmemo->expects($this->once())->method('setBaseShippingAmount')->with(20.0)->willReturnSelf();
+        $legitimateCreditmemo->expects($this->once())->method('setShippingInclTax')->with(12.0)->willReturnSelf();
+        $legitimateCreditmemo->expects($this->once())->method('setBaseShippingInclTax')->with(24.0)->willReturnSelf();
+        $legitimateCreditmemo->expects($this->once())->method('setGrandTotal')->with(60.0)->willReturnSelf();
+        $legitimateCreditmemo->expects($this->once())->method('setBaseGrandTotal')->with(120.0)->willReturnSelf();
+
+        $this->shippingCollector->collect($legitimateCreditmemo);
+    }
 }
