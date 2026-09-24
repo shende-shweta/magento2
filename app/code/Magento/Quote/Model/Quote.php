@@ -1797,27 +1797,27 @@ class Quote extends AbstractExtensibleModel implements \Magento\Quote\Api\Data\C
      * It's passed to \Magento\Catalog\Helper\Product->addParamsToBuyRequest() to compose resulting buyRequest.
      *
      * Basically it can hold
-     * - 'current_config', \Magento\Framework\DataObject or array - current buyRequest that configures product in this
+     * - 'current_config', \\Magento\\Framework\\DataObject or array - current buyRequest that configures product in this
      * item, used to restore currently attached files
      * - 'files_prefix': string[a-z0-9_] - prefix that was added at frontend to names of file options (file inputs),
      *   so they won't intersect with other submitted options
      *
-     * For more options see \Magento\Catalog\Helper\Product->addParamsToBuyRequest()
+     * For more options see \\Magento\\Catalog\\Helper\\Product->addParamsToBuyRequest()
      *
      * @param int $itemId
      * @param DataObject $buyRequest
      * @param null|array|DataObject $params
-     * @return \Magento\Quote\Model\Quote\Item
-     * @throws \Magento\Framework\Exception\LocalizedException
+     * @return \\Magento\\Quote\\Model\\Quote\\Item
+     * @throws \\Magento\\Framework\\Exception\\LocalizedException
      *
-     * @see \Magento\Catalog\Helper\Product::addParamsToBuyRequest()
+     * @see \\Magento\\Catalog\\Helper\\Product::addParamsToBuyRequest()
      * @SuppressWarnings(PHPMD.CyclomaticComplexity)
      */
     public function updateItem($itemId, $buyRequest, $params = null)
     {
         $item = $this->getItemById($itemId);
         if (!$item) {
-            throw new \Magento\Framework\Exception\LocalizedException(
+            throw new \\Magento\\Framework\\Exception\\LocalizedException(
                 __('This is the wrong quote item id to update configuration.')
             );
         }
@@ -1842,7 +1842,7 @@ class Quote extends AbstractExtensibleModel implements \Magento\Quote\Api\Data\C
         $resultItem = $this->addProduct($product, $buyRequest);
 
         if (is_string($resultItem)) {
-            throw new \Magento\Framework\Exception\LocalizedException(__($resultItem));
+            throw new \\Magento\\Framework\\Exception\\LocalizedException(__($resultItem));
         }
 
         if ($resultItem->getParentItem()) {
