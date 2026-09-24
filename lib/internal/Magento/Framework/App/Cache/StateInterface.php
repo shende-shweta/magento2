@@ -29,7 +29,11 @@ interface StateInterface
     public function setEnabled($cacheType, $isEnabled);
 
     /**
-     * Save the current statuses (enabled/disabled) of cache types to the persistent storage
+     * Persist cache type enable/disable changes made via setEnabled() to deployment storage.
+     *
+     * Implementation writes only cache types that were modified through setEnabled() since
+     * the last successful persist() into the environment-specific config (typically
+     * app/etc/env.php). If no types were modified, this method performs no write.
      *
      * @return void
      */
