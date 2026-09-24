@@ -792,11 +792,22 @@ class ShippingTest extends TestCase
         $creditmemo->method('getId')->willReturn(null);
         $creditmemo->method('hasBaseShippingAmount')->willReturn(true);
         // Admin UI prefills a non-zero shipping refund even though the invoice charged no shipping.
-        $creditmemo->method('getBaseShippingAmount')->willReturn(20.0);
+        $prefilledBaseShipping = 20.0;
+        $creditmemo->method('getBaseShippingAmount')->willReturnCallback(
+            function () use (&$prefilledBaseShipping) {
+                return $prefilledBaseShipping;
+            }
+        );
+        $creditmemo->method('setBaseShippingAmount')->willReturnCallback(
+            function ($amount) use (&$prefilledBaseShipping, $creditmemo) {
+                $prefilledBaseShipping = (float) $amount;
+                return $creditmemo;
+            }
+        );
         $creditmemo->method('getGrandTotal')->willReturn(80.0);
         $creditmemo->method('getBaseGrandTotal')->willReturn(160.0);
 
-        $creditmemo->expects($this->atLeastOnce())->method('setBaseShippingAmount')->with(0.0)->willReturnSelf();
+        $creditmemo->expects($this->atLeastOnce())->method('setBaseShippingAmount')->with(0.0);
         $creditmemo->expects($this->atLeastOnce())->method('setBaseShippingInclTax')->with(0.0)->willReturnSelf();
         $creditmemo->expects($this->once())->method('setShippingAmount')->with(0.0)->willReturnSelf();
         $creditmemo->expects($this->once())->method('setShippingInclTax')->with(0.0)->willReturnSelf();
