@@ -791,8 +791,8 @@ class ShippingTest extends TestCase
         $creditmemo->method('getInvoice')->willReturn($invoice);
         $creditmemo->method('getId')->willReturn(null);
         $creditmemo->method('hasBaseShippingAmount')->willReturn(true);
-        // Admin-prefilled amount is zeroed on the credit memo before refund math runs.
-        $creditmemo->method('getBaseShippingAmount')->willReturn(0.0);
+        // Admin UI prefills a non-zero shipping refund even though the invoice charged no shipping.
+        $creditmemo->method('getBaseShippingAmount')->willReturn(20.0);
         $creditmemo->method('getGrandTotal')->willReturn(80.0);
         $creditmemo->method('getBaseGrandTotal')->willReturn(160.0);
 
@@ -802,6 +802,79 @@ class ShippingTest extends TestCase
         $creditmemo->expects($this->once())->method('setShippingInclTax')->with(0.0)->willReturnSelf();
         $creditmemo->expects($this->once())->method('setGrandTotal')->with(80.0)->willReturnSelf();
         $creditmemo->expects($this->once())->method('setBaseGrandTotal')->with(160.0)->willReturnSelf();
+
+        $this->shippingCollector->collect($creditmemo);
+    }
+
+    /**
+     * SCRUM-104: second credit memo on an invoice after shipping was fully refunded must not fatal.
+     *
+     * @throws LocalizedException
+     */
+    public function testCollectSecondCreditmemoOnInvoiceAfterShippingFullyRefunded(): void
+    {
+        $this->taxConfig->expects($this->any())->method('displaySalesShippingInclTax')->willReturn(false);
+
+        $invoice = $this->createConfiguredMock(
+            Invoice::class,
+            [
+                'getId' => 100,
+                'getShippingAmount' => 10.0,
+                'getBaseShippingAmount' => 20.0,
+                'getShippingInclTax' => 12.0,
+                'getBaseShippingInclTax' => 24.0,
+            ]
+        );
+
+        $priorCreditmemo = $this->createConfiguredMock(
+            Creditmemo::class,
+            [
+                'getId' => 501,
+                'getInvoiceId' => 100,
+                'getShippingAmount' => 10.0,
+                'getBaseShippingAmount' => 20.0,
+                'getShippingInclTax' => 12.0,
+                'getBaseShippingInclTax' => 24.0,
+            ]
+        );
+
+        $order = $this->getOrderMock(
+            [
+                'shipping_amount' => 10.0,
+                'shipping_refunded' => 10.0,
+                'base_shipping_amount' => 20.0,
+                'base_shipping_refunded' => 20.0,
+                'shipping_incl_tax' => 12.0,
+                'base_shipping_incl_tax' => 24.0,
+                'shipping_tax_amount' => 2.0,
+                'shipping_tax_refunded' => 2.0,
+                'base_shipping_tax_amount' => 4.0,
+                'base_shipping_tax_refunded' => 4.0,
+            ]
+        );
+        $order->method('getCreditmemosCollection')->willReturn([$priorCreditmemo]);
+
+        $creditmemo = $this->createPartialMockWithReflection(
+            Creditmemo::class,
+            [
+                'hasBaseShippingAmount', 'getOrder', 'getInvoice', 'getId',
+                'setShippingAmount', 'setBaseShippingAmount', 'setShippingInclTax', 'setBaseShippingInclTax',
+                'setGrandTotal', 'setBaseGrandTotal', 'getGrandTotal', 'getBaseGrandTotal',
+            ]
+        );
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getInvoice')->willReturn($invoice);
+        $creditmemo->method('getId')->willReturn(502);
+        $creditmemo->method('hasBaseShippingAmount')->willReturn(false);
+        $creditmemo->method('getGrandTotal')->willReturn(30.0);
+        $creditmemo->method('getBaseGrandTotal')->willReturn(60.0);
+
+        $creditmemo->expects($this->once())->method('setShippingAmount')->with(0.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setBaseShippingAmount')->with(0.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setShippingInclTax')->with(0.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setBaseShippingInclTax')->with(0.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setGrandTotal')->with(30.0)->willReturnSelf();
+        $creditmemo->expects($this->once())->method('setBaseGrandTotal')->with(60.0)->willReturnSelf();
 
         $this->shippingCollector->collect($creditmemo);
     }
