@@ -12,17 +12,6 @@ use Magento\Framework\ObjectManager\ResetAfterRequestInterface;
 
 /**
  * Cache State
- *
- * SCRUM-105 (cache CLI): persist only cache types mutated via setEnabled() into env.php.
- * Root cause: unscoped persist promoted the full merged cache_types map from config.php.
- *
- * Upstream reference: magento/magento2#41275 (open PR) proposes the same scoped-persist behavior using
- * inline mutation tracking ($mutatedCacheTypes). This fork is not a byte-for-byte copy: it uses
- * $cacheTypesPendingEnvPersist, extractPendingEnvCacheStatuses(), and SCRUM-105 regression tests.
- * Historical cross-check: unmerged SCRUM-100 hotfix (PR #3) — same symptom class.
- * Jira: SCRUM-105 is intake for this fix branch; exact duplicate of open SCRUM-18
- * ("HRMS Platform - Security Hardening & Payroll/Leave Data-Integrity Remediation").
- * Related symptom duplicates on the same track: SCRUM-80, SCRUM-100, SCRUM-103 — shared fix via PR #6.
  */
 class State implements StateInterface, ResetAfterRequestInterface
 {
@@ -69,13 +58,6 @@ class State implements StateInterface, ResetAfterRequestInterface
     private readonly bool $banAll;
 
     /**
-     * Cache type codes queued for env.php persist since the last persist() call
-     *
-     * @var array<string, true>
-     */
-    private array $cacheTypesPendingEnvPersist = [];
-
-    /**
      * Constructor
      *
      * @param DeploymentConfig $config
@@ -112,34 +94,18 @@ class State implements StateInterface, ResetAfterRequestInterface
     {
         $this->load();
         $this->statuses[$cacheType] = (int)$isEnabled;
-        $this->cacheTypesPendingEnvPersist[$cacheType] = true;
     }
 
     /**
-     * @inheritdoc
+     * Save the current statuses (enabled/disabled) of cache types to the persistent storage
+     *
+     * @return void
+     * @throws \Magento\Framework\Exception\FileSystemException
      */
     public function persist(): void
     {
         $this->load();
-        $pendingStatuses = $this->extractPendingEnvCacheStatuses();
-        if ($pendingStatuses === []) {
-            return;
-        }
-        $this->writer->saveConfig([ConfigFilePool::APP_ENV => [self::CACHE_KEY => $pendingStatuses]]);
-        $this->cacheTypesPendingEnvPersist = [];
-    }
-
-    /**
-     * Subset of in-memory statuses that should be written to env.php on this persist() call.
-     *
-     * @return array<string, int>
-     */
-    private function extractPendingEnvCacheStatuses(): array
-    {
-        if ($this->cacheTypesPendingEnvPersist === []) {
-            return [];
-        }
-        return array_intersect_key($this->statuses, $this->cacheTypesPendingEnvPersist);
+        $this->writer->saveConfig([ConfigFilePool::APP_ENV => [self::CACHE_KEY => $this->statuses]]);
     }
 
     /**
@@ -166,6 +132,5 @@ class State implements StateInterface, ResetAfterRequestInterface
     public function _resetState(): void
     {
         $this->statuses = null;
-        $this->cacheTypesPendingEnvPersist = [];
     }
 }
