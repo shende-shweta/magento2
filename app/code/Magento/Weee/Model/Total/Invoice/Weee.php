@@ -46,6 +46,35 @@ class Weee extends \Magento\Sales\Model\Order\Invoice\Total\AbstractTotal
     }
 
     /**
+     * Resolve the order item that actually carries the collected Weee (FPT) "applied" data.
+     *
+     * Fixed Product Tax amounts are collected during quote totals collection against the
+     * child/variant order item for composite products (see
+     * \Magento\Weee\Model\Total\Quote\Weee::process(), which only calls
+     * WeeeHelper::setApplied() on leaf/child items; recalculateParent() never repopulates the
+     * parent's applied array). Reading Weee data off a configurable/bundle *parent* order item
+     * therefore always resolves to an empty applied array, so the FPT amount is silently
+     * dropped from the invoice Grand Total for configurable variants while the order-level
+     * total (computed from the child) still includes it.
+     *
+     * @param \Magento\Sales\Model\Order\Item $orderItem
+     * @return \Magento\Sales\Model\Order\Item
+     */
+    private function getWeeeDataOrderItem(\Magento\Sales\Model\Order\Item $orderItem)
+    {
+        if ($orderItem->getHasChildren()) {
+            foreach ($orderItem->getChildrenItems() as $childItem) {
+                if (!$childItem->isDeleted()) {
+                    // Configurable products have a single variant child; use it as the
+                    // source of truth for FPT applied-array reads/writes.
+                    return $childItem;
+                }
+            }
+        }
+        return $orderItem;
+    }
+
+    /**
      * Collect Weee amounts for the invoice
      *
      * @param  \Magento\Sales\Model\Order\Invoice $invoice
@@ -81,16 +110,21 @@ class Weee extends \Magento\Sales\Model\Order\Invoice\Total\AbstractTotal
                 continue;
             }
 
+            // For configurable (and other composite) products, the FPT "applied" data lives
+            // on the child/variant order item, not on the parent. Resolve it up front so every
+            // Weee getter/setter below reads and writes the same, consistent object.
+            $weeeOrderItem = $this->getWeeeDataOrderItem($orderItem);
+
             $ratio = $item->getQty() / $orderItemQty;
 
-            $applied = $this->_weeeData->getApplied($orderItem);
+            $applied = $this->_weeeData->getApplied($weeeOrderItem);
             $orderItemWeeeAmount = array_sum(array_column($applied, 'row_amount'));
             $orderItemBaseWeeeAmount = array_sum(array_column($applied, 'base_row_amount'));
             $weeeAmount = $invoice->roundPrice($orderItemWeeeAmount * $ratio);
             $baseWeeeAmount = $invoice->roundPrice($orderItemBaseWeeeAmount * $ratio, 'base');
 
-            $orderItemWeeeInclTax = $this->_weeeData->getRowWeeeTaxInclTax($orderItem);
-            $orderItemBaseWeeeInclTax = $this->_weeeData->getBaseRowWeeeTaxInclTax($orderItem);
+            $orderItemWeeeInclTax = $this->_weeeData->getRowWeeeTaxInclTax($weeeOrderItem);
+            $orderItemBaseWeeeInclTax = $this->_weeeData->getBaseRowWeeeTaxInclTax($weeeOrderItem);
             $weeeAmountInclTax = $invoice->roundPrice($orderItemWeeeInclTax * $ratio);
             $baseWeeeAmountInclTax = $invoice->roundPrice($orderItemBaseWeeeInclTax * $ratio, 'base');
 
@@ -99,12 +133,12 @@ class Weee extends \Magento\Sales\Model\Order\Invoice\Total\AbstractTotal
             $itemBaseWeeeTax = $baseWeeeAmountInclTax - $baseWeeeAmount;
 
             if ($item->isLast()) {
-                $weeeAmount = $orderItemWeeeAmount - $this->_weeeData->getWeeeAmountInvoiced($orderItem);
+                $weeeAmount = $orderItemWeeeAmount - $this->_weeeData->getWeeeAmountInvoiced($weeeOrderItem);
                 $baseWeeeAmount =
-                    $orderItemBaseWeeeAmount - $this->_weeeData->getBaseWeeeAmountInvoiced($orderItem);
-                $itemWeeeTax = $orderItemWeeeTax - $this->_weeeData->getWeeeTaxAmountInvoiced($orderItem);
+                    $orderItemBaseWeeeAmount - $this->_weeeData->getBaseWeeeAmountInvoiced($weeeOrderItem);
+                $itemWeeeTax = $orderItemWeeeTax - $this->_weeeData->getWeeeTaxAmountInvoiced($weeeOrderItem);
                 $itemBaseWeeeTax =
-                    $orderItemWeeeTax - $this->_weeeData->getBaseWeeeTaxAmountInvoiced($orderItem);
+                    $orderItemWeeeTax - $this->_weeeData->getBaseWeeeTaxAmountInvoiced($weeeOrderItem);
             }
 
             $totalWeeeTaxAmount += $itemWeeeTax;
@@ -124,7 +158,7 @@ class Weee extends \Magento\Sales\Model\Order\Invoice\Total\AbstractTotal
             $item->setWeeeTaxAppliedRowAmount($weeeAmount);
             $item->setBaseWeeeTaxAppliedRowAmount($baseWeeeAmount);
             $newApplied = [];
-            $applied = $this->_weeeData->getApplied($orderItem);
+            $applied = $this->_weeeData->getApplied($weeeOrderItem);
             foreach ($applied as $one) {
                 $title = (string)$one['title'];
                 $one['base_row_amount'] = $invoice->roundPrice($one['base_row_amount'] * $ratio, $title.'_base');
@@ -141,7 +175,7 @@ class Weee extends \Magento\Sales\Model\Order\Invoice\Total\AbstractTotal
 
             //Update order item
             $newApplied = [];
-            $applied = $this->_weeeData->getApplied($orderItem);
+            $applied = $this->_weeeData->getApplied($weeeOrderItem);
             foreach ($applied as $one) {
                 if (isset($one[WeeeHelper::KEY_BASE_WEEE_AMOUNT_INVOICED])) {
                     $one[WeeeHelper::KEY_BASE_WEEE_AMOUNT_INVOICED] =
@@ -169,7 +203,7 @@ class Weee extends \Magento\Sales\Model\Order\Invoice\Total\AbstractTotal
                 }
                 $newApplied[] = $one;
             }
-            $this->_weeeData->setApplied($orderItem, $newApplied);
+            $this->_weeeData->setApplied($weeeOrderItem, $newApplied);
 
             $item->setWeeeTaxRowDisposition($item->getWeeeTaxDisposition() * $item->getQty());
             $item->setBaseWeeeTaxRowDisposition($item->getBaseWeeeTaxDisposition() * $item->getQty());
