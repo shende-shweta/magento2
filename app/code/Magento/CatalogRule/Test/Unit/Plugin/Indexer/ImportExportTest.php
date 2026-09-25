@@ -5,7 +5,6 @@
  */
 declare(strict_types=1);
 
-
 namespace Magento\CatalogRule\Test\Unit\Plugin\Indexer;
 
 use Magento\CatalogRule\Model\Indexer\Rule\RuleProductProcessor;
@@ -44,7 +43,6 @@ class ImportExportTest extends TestCase
             RuleProductProcessor::class,
             ['isIndexerScheduled', 'markIndexerAsInvalid']
         );
-        $this->ruleProductProcessor->expects($this->once())->method('isIndexerScheduled')->willReturn(false);
         $this->subject = $this->createMock(Import::class);
 
         $this->plugin = (new ObjectManager($this))->getObject(
@@ -58,9 +56,19 @@ class ImportExportTest extends TestCase
     public function testAfterImportSource()
     {
         $result = true;
+        $this->subject->method('getEntity')->willReturn('catalog_product');
+        $this->ruleProductProcessor->expects($this->once())->method('isIndexerScheduled')->willReturn(false);
+        $this->ruleProductProcessor->expects($this->once())->method('markIndexerAsInvalid');
 
-        $this->ruleProductProcessor->expects($this->once())
-            ->method('markIndexerAsInvalid');
+        $this->assertEquals($result, $this->plugin->afterImportSource($this->subject, $result));
+    }
+
+    public function testAfterImportSourceSkipsNonCatalogProductEntity()
+    {
+        $result = true;
+        $this->subject->method('getEntity')->willReturn('customer');
+        $this->ruleProductProcessor->expects($this->never())->method('isIndexerScheduled');
+        $this->ruleProductProcessor->expects($this->never())->method('markIndexerAsInvalid');
 
         $this->assertEquals($result, $this->plugin->afterImportSource($this->subject, $result));
     }
