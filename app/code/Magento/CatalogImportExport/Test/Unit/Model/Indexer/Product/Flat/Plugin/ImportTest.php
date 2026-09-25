@@ -1,86 +1,125 @@
 <?php
 /**
- * Copyright 2015 Adobe
- * All Rights Reserved.
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
  */
 declare(strict_types=1);
 
 namespace Magento\CatalogImportExport\Test\Unit\Model\Indexer\Product\Flat\Plugin;
 
 use Magento\Catalog\Model\Indexer\Product\Flat\Processor;
-use Magento\Catalog\Model\Indexer\Product\Flat\State;
-use Magento\CatalogImportExport\Model\Indexer\Product\Flat\Plugin\Import;
-use Magento\Framework\TestFramework\Unit\Helper\ObjectManager;
-use Magento\ImportExport\Model\Import as ImportExportImport;
+use Magento\CatalogImportExport\Model\Indexer\Product\Flat\Plugin\Import as FlatImportPlugin;
+use Magento\Framework\Indexer\IndexerInterface;
+use Magento\Framework\Indexer\IndexerRegistry;
+use Magento\ImportExport\Model\Import;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * SCRUM-115: afterImportSource must only invalidate the catalog_product Flat
+ * indexer for catalog_product imports, not for every scheduled import type.
+ */
 class ImportTest extends TestCase
 {
-    /**
-     * @var Processor|MockObject
-     */
-    private $processorMock;
+    /** @var IndexerRegistry|MockObject */
+    private $indexerRegistryMock;
 
-    /**
-     * @var Import
-     */
-    private $model;
+    /** @var IndexerInterface|MockObject */
+    private $indexerMock;
 
-    /**
-     * @var State|MockObject
-     */
-    private $flatStateMock;
-
-    /**
-     * @var ImportExportImport|MockObject
-     */
-    private $subjectMock;
+    /** @var FlatImportPlugin */
+    private $plugin;
 
     protected function setUp(): void
     {
-        $this->processorMock = $this->createPartialMock(
-            Processor::class,
-            ['markIndexerAsInvalid', 'isIndexerScheduled']
-        );
-
-        $this->flatStateMock = $this->createPartialMock(State::class, ['isFlatEnabled']);
-
-        $this->subjectMock = $this->createMock(ImportExportImport::class);
-
-        $this->model = (new ObjectManager($this))->getObject(
-            Import::class,
-            [
-                'productFlatIndexerProcessor' => $this->processorMock,
-                'flatState' => $this->flatStateMock
-            ]
-        );
+        $this->indexerRegistryMock = $this->createMock(IndexerRegistry::class);
+        $this->indexerMock = $this->createMock(IndexerInterface::class);
+        $this->plugin = new FlatImportPlugin($this->indexerRegistryMock);
     }
 
-    public function testAfterImportSourceWithFlatEnabledAndIndexerScheduledDisabled()
+    /**
+     * SCRUM-115 bug-fix test: a non-catalog_product scheduled import (e.g.
+     * "customer") must NOT invalidate the catalog_product Flat indexer.
+     */
+    public function testAfterImportSourceDoesNotInvalidateForNonCatalogProductEntity(): void
     {
-        $this->flatStateMock->expects($this->once())->method('isFlatEnabled')->willReturn(true);
-        $this->processorMock->expects($this->once())->method('isIndexerScheduled')->willReturn(false);
-        $this->processorMock->expects($this->once())->method('markIndexerAsInvalid');
-        $someData = [1, 2, 3];
-        $this->assertEquals($someData, $this->model->afterImportSource($this->subjectMock, $someData));
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('customer');
+
+        $this->indexerRegistryMock->expects($this->never())->method('get');
+        $this->indexerMock->expects($this->never())->method('invalidate');
+
+        $result = $this->plugin->afterImportSource($subject, $subject);
+
+        $this->assertSame($subject, $result);
     }
 
-    public function testAfterImportSourceWithFlatDisabledAndIndexerScheduledDisabled()
+    /**
+     * Regression: a catalog_product scheduled import must still invalidate
+     * the Flat indexer exactly once (intended pre-existing behavior).
+     */
+    public function testAfterImportSourceInvalidatesForCatalogProductEntity(): void
     {
-        $this->flatStateMock->expects($this->once())->method('isFlatEnabled')->willReturn(false);
-        $this->processorMock->expects($this->never())->method('isIndexerScheduled')->willReturn(false);
-        $this->processorMock->expects($this->never())->method('markIndexerAsInvalid');
-        $someData = [1, 2, 3];
-        $this->assertEquals($someData, $this->model->afterImportSource($this->subjectMock, $someData));
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('catalog_product');
+
+        $this->indexerRegistryMock->expects($this->once())
+            ->method('get')
+            ->with(Processor::INDEXER_ID)
+            ->willReturn($this->indexerMock);
+        $this->indexerMock->expects($this->once())->method('invalidate');
+
+        $result = $this->plugin->afterImportSource($subject, $subject);
+
+        $this->assertSame($subject, $result);
     }
 
-    public function testAfterImportSourceWithFlatEnabledAndIndexerScheduledEnabled()
+    /**
+     * Regression: repeated catalog_product imports each invalidate once —
+     * no leaked state / double-invalidate across plugin invocations.
+     */
+    public function testAfterImportSourceIsIdempotentAcrossMultipleCalls(): void
     {
-        $this->flatStateMock->expects($this->once())->method('isFlatEnabled')->willReturn(true);
-        $this->processorMock->expects($this->once())->method('isIndexerScheduled')->willReturn(true);
-        $this->processorMock->expects($this->never())->method('markIndexerAsInvalid');
-        $someData = [1, 2, 3];
-        $this->assertEquals($someData, $this->model->afterImportSource($this->subjectMock, $someData));
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('catalog_product');
+
+        $this->indexerRegistryMock->expects($this->exactly(2))
+            ->method('get')
+            ->with(Processor::INDEXER_ID)
+            ->willReturn($this->indexerMock);
+        $this->indexerMock->expects($this->exactly(2))->method('invalidate');
+
+        $this->plugin->afterImportSource($subject, $subject);
+        $this->plugin->afterImportSource($subject, $subject);
+    }
+
+    /**
+     * Edge case: entity comparison must be exact — a similarly named but
+     * different entity ("catalog_product_attribute") must not false-match.
+     */
+    public function testAfterImportSourceDoesNotInvalidateForSimilarButDifferentEntity(): void
+    {
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('catalog_product_attribute');
+
+        $this->indexerRegistryMock->expects($this->never())->method('get');
+
+        $this->plugin->afterImportSource($subject, $subject);
+    }
+
+    /**
+     * Edge case: empty/unset entity type must not accidentally match and
+     * must not trigger a fatal error.
+     */
+    public function testAfterImportSourceHandlesEmptyEntityGracefully(): void
+    {
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('');
+
+        $this->indexerRegistryMock->expects($this->never())->method('get');
+
+        $result = $this->plugin->afterImportSource($subject, $subject);
+
+        $this->assertSame($subject, $result);
     }
 }

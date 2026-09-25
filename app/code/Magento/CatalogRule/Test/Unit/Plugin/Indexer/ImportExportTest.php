@@ -1,67 +1,125 @@
 <?php
 /**
- * Copyright 2015 Adobe
- * All Rights Reserved.
+ * Copyright © Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
  */
 declare(strict_types=1);
 
+namespace Magento\CatalogImportExport\Test\Unit\Model\Indexer\Product\Eav\Plugin;
 
-namespace Magento\CatalogRule\Test\Unit\Plugin\Indexer;
-
-use Magento\CatalogRule\Model\Indexer\Rule\RuleProductProcessor;
-use Magento\CatalogRule\Plugin\Indexer\ImportExport;
-use Magento\Framework\TestFramework\Unit\Helper\ObjectManager;
+use Magento\Catalog\Model\Indexer\Product\Eav\Processor;
+use Magento\CatalogImportExport\Model\Indexer\Product\Eav\Plugin\Import as EavImportPlugin;
+use Magento\Framework\Indexer\IndexerInterface;
+use Magento\Framework\Indexer\IndexerRegistry;
 use Magento\ImportExport\Model\Import;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
-class ImportExportTest extends TestCase
+/**
+ * SCRUM-115: afterImportSource must only invalidate the catalog_product EAV
+ * indexer for catalog_product imports, not for every scheduled import type.
+ */
+class ImportTest extends TestCase
 {
-    /**
-     * Indexer processor mock
-     *
-     * @var RuleProductProcessor|MockObject
-     */
-    protected $ruleProductProcessor;
+    /** @var IndexerRegistry|MockObject */
+    private $indexerRegistryMock;
 
-    /**
-     * Import model mock
-     *
-     * @var Import|MockObject
-     */
-    protected $subject;
+    /** @var IndexerInterface|MockObject */
+    private $indexerMock;
 
-    /**
-     * Tested plugin
-     *
-     * @var ImportExport
-     */
-    protected $plugin;
+    /** @var EavImportPlugin */
+    private $plugin;
 
     protected function setUp(): void
     {
-        $this->ruleProductProcessor = $this->createPartialMock(
-            RuleProductProcessor::class,
-            ['isIndexerScheduled', 'markIndexerAsInvalid']
-        );
-        $this->ruleProductProcessor->expects($this->once())->method('isIndexerScheduled')->willReturn(false);
-        $this->subject = $this->createMock(Import::class);
-
-        $this->plugin = (new ObjectManager($this))->getObject(
-            ImportExport::class,
-            [
-                'ruleProductProcessor' => $this->ruleProductProcessor,
-            ]
-        );
+        $this->indexerRegistryMock = $this->createMock(IndexerRegistry::class);
+        $this->indexerMock = $this->createMock(IndexerInterface::class);
+        $this->plugin = new EavImportPlugin($this->indexerRegistryMock);
     }
 
-    public function testAfterImportSource()
+    /**
+     * SCRUM-115 bug-fix test: a non-catalog_product scheduled import (e.g.
+     * "customer") must NOT invalidate the catalog_product EAV indexer.
+     */
+    public function testAfterImportSourceDoesNotInvalidateForNonCatalogProductEntity(): void
     {
-        $result = true;
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('customer');
 
-        $this->ruleProductProcessor->expects($this->once())
-            ->method('markIndexerAsInvalid');
+        $this->indexerRegistryMock->expects($this->never())->method('get');
+        $this->indexerMock->expects($this->never())->method('invalidate');
 
-        $this->assertEquals($result, $this->plugin->afterImportSource($this->subject, $result));
+        $result = $this->plugin->afterImportSource($subject, $subject);
+
+        $this->assertSame($subject, $result);
+    }
+
+    /**
+     * Regression: a catalog_product scheduled import must still invalidate
+     * the EAV indexer exactly once (intended pre-existing behavior).
+     */
+    public function testAfterImportSourceInvalidatesForCatalogProductEntity(): void
+    {
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('catalog_product');
+
+        $this->indexerRegistryMock->expects($this->once())
+            ->method('get')
+            ->with(Processor::INDEXER_ID)
+            ->willReturn($this->indexerMock);
+        $this->indexerMock->expects($this->once())->method('invalidate');
+
+        $result = $this->plugin->afterImportSource($subject, $subject);
+
+        $this->assertSame($subject, $result);
+    }
+
+    /**
+     * Regression: repeated catalog_product imports each invalidate once —
+     * no leaked state / double-invalidate across plugin invocations.
+     */
+    public function testAfterImportSourceIsIdempotentAcrossMultipleCalls(): void
+    {
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('catalog_product');
+
+        $this->indexerRegistryMock->expects($this->exactly(2))
+            ->method('get')
+            ->with(Processor::INDEXER_ID)
+            ->willReturn($this->indexerMock);
+        $this->indexerMock->expects($this->exactly(2))->method('invalidate');
+
+        $this->plugin->afterImportSource($subject, $subject);
+        $this->plugin->afterImportSource($subject, $subject);
+    }
+
+    /**
+     * Edge case: entity comparison must be exact — a similarly named but
+     * different entity ("catalog_product_attribute") must not false-match.
+     */
+    public function testAfterImportSourceDoesNotInvalidateForSimilarButDifferentEntity(): void
+    {
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('catalog_product_attribute');
+
+        $this->indexerRegistryMock->expects($this->never())->method('get');
+
+        $this->plugin->afterImportSource($subject, $subject);
+    }
+
+    /**
+     * Edge case: empty/unset entity type must not accidentally match and
+     * must not trigger a fatal error.
+     */
+    public function testAfterImportSourceHandlesEmptyEntityGracefully(): void
+    {
+        $subject = $this->createMock(Import::class);
+        $subject->method('getEntity')->willReturn('');
+
+        $this->indexerRegistryMock->expects($this->never())->method('get');
+
+        $result = $this->plugin->afterImportSource($subject, $subject);
+
+        $this->assertSame($subject, $result);
     }
 }
