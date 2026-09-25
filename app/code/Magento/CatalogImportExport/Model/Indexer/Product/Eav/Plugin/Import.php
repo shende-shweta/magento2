@@ -23,6 +23,10 @@ class Import
     /**
      * After import handler
      *
+     * Only invalidate the catalog_product EAV indexer when the imported entity
+     * is actually catalog_product; unrelated entity imports must not trigger
+     * a reindex.
+     *
      * @param \Magento\ImportExport\Model\Import $subject
      * @param Object $import
      *
@@ -31,7 +35,9 @@ class Import
      */
     public function afterImportSource(\Magento\ImportExport\Model\Import $subject, $import)
     {
-        if (!$this->_indexerEavProcessor->isIndexerScheduled()) {
+        if ($subject->getEntity() === 'catalog_product'
+            && !$this->_indexerEavProcessor->isIndexerScheduled()
+        ) {
             $this->_indexerEavProcessor->markIndexerAsInvalid();
         }
         return $import;

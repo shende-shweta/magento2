@@ -34,6 +34,9 @@ class Import
     /**
      * After import handler
      *
+     * Only invalidate the flat indexer when the imported entity is
+     * catalog_product; unrelated entity imports must not trigger a reindex.
+     *
      * @param \Magento\ImportExport\Model\Import $subject
      * @param Object $import
      *
@@ -42,7 +45,10 @@ class Import
      */
     public function afterImportSource(\Magento\ImportExport\Model\Import $subject, $import)
     {
-        if ($this->flatState->isFlatEnabled() && !$this->_productFlatIndexerProcessor->isIndexerScheduled()) {
+        if ($subject->getEntity() === 'catalog_product'
+            && $this->flatState->isFlatEnabled()
+            && !$this->_productFlatIndexerProcessor->isIndexerScheduled()
+        ) {
             $this->_productFlatIndexerProcessor->markIndexerAsInvalid();
         }
 
