@@ -26,6 +26,9 @@ class ImportExport
     /**
      * Invalidate catalog price rule indexer
      *
+     * Only invalidate when the imported entity is catalog_product; unrelated
+     * entity imports must not force a catalog rule reindex.
+     *
      * @param Import $subject
      * @param bool $result
      * @return bool
@@ -34,7 +37,9 @@ class ImportExport
      */
     public function afterImportSource(Import $subject, $result)
     {
-        if (!$this->ruleProductProcessor->isIndexerScheduled()) {
+        if ($subject->getEntity() === 'catalog_product'
+            && !$this->ruleProductProcessor->isIndexerScheduled()
+        ) {
             $this->ruleProductProcessor->markIndexerAsInvalid();
         }
         return $result;
