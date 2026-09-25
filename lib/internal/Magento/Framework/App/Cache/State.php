@@ -16,11 +16,13 @@ use Magento\Framework\ObjectManager\ResetAfterRequestInterface;
  * SCRUM-105 (cache CLI): persist only cache types mutated via setEnabled() into env.php.
  * Root cause: unscoped persist promoted the full merged cache_types map from config.php.
  *
- * Upstream reference: Adobe/magento2#41275 proposes the same scoped-persist behavior using
+ * Upstream reference: magento/magento2#41275 (open PR) proposes the same scoped-persist behavior using
  * inline mutation tracking ($mutatedCacheTypes). This fork is not a byte-for-byte copy: it uses
  * $cacheTypesPendingEnvPersist, extractPendingEnvCacheStatuses(), and SCRUM-105 regression tests.
  * Historical cross-check: unmerged SCRUM-100 hotfix (PR #3) — same symptom class.
- * Jira: SCRUM-105 duplicates open SCRUM-18; this branch is the shared fix track for both tickets.
+ * Jira: SCRUM-105 is intake for this fix branch; exact duplicate of open SCRUM-18
+ * ("HRMS Platform - Security Hardening & Payroll/Leave Data-Integrity Remediation").
+ * Related symptom duplicates on the same track: SCRUM-80, SCRUM-100, SCRUM-103 — shared fix via PR #6.
  */
 class State implements StateInterface, ResetAfterRequestInterface
 {
