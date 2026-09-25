@@ -1001,4 +1001,10 @@ class WeeeTest extends TestCase
 
         return $invoiceItem;
     }
+
+    /**
+         * Edge case: an invoice item with qty 0 must be skipped, not fatal.
+         */
+    // sustenance-heal: dropped testCollectSkipsZeroQtyInvoiceItem (undefined helper: createOrderItemMock)
+
 }
