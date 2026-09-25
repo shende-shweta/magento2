@@ -46,35 +46,6 @@ class Weee extends \Magento\Sales\Model\Order\Invoice\Total\AbstractTotal
     }
 
     /**
-     * Resolve the order item that actually carries the collected Weee (FPT) "applied" data.
-     *
-     * Fixed Product Tax amounts are collected during quote totals collection against the
-     * child/variant order item for composite products (see
-     * \Magento\Weee\Model\Total\Quote\Weee::process(), which only calls
-     * WeeeHelper::setApplied() on leaf/child items; recalculateParent() never repopulates the
-     * parent's applied array). Reading Weee data off a configurable/bundle *parent* order item
-     * therefore always resolves to an empty applied array, so the FPT amount is silently
-     * dropped from the invoice Grand Total for configurable variants while the order-level
-     * total (computed from the child) still includes it.
-     *
-     * @param \Magento\Sales\Model\Order\Item $orderItem
-     * @return \Magento\Sales\Model\Order\Item
-     */
-    private function getWeeeDataOrderItem(\Magento\Sales\Model\Order\Item $orderItem)
-    {
-        if ($orderItem->getHasChildren()) {
-            foreach ($orderItem->getChildrenItems() as $childItem) {
-                if (!$childItem->isDeleted()) {
-                    // Configurable products have a single variant child; use it as the
-                    // source of truth for FPT applied-array reads/writes.
-                    return $childItem;
-                }
-            }
-        }
-        return $orderItem;
-    }
-
-    /**
      * Collect Weee amounts for the invoice
      *
      * @param  \Magento\Sales\Model\Order\Invoice $invoice
@@ -110,10 +81,19 @@ class Weee extends \Magento\Sales\Model\Order\Invoice\Total\AbstractTotal
                 continue;
             }
 
-            // For configurable (and other composite) products, the FPT "applied" data lives
-            // on the child/variant order item, not on the parent. Resolve it up front so every
-            // Weee getter/setter below reads and writes the same, consistent object.
-            $weeeOrderItem = $this->getWeeeDataOrderItem($orderItem);
+            // FPT (Weee) row amounts for configurable products are stored on the
+            // child/variant order item, not on the configurable parent. Resolve the
+            // correct source item so the parent invoice line still picks up the FPT
+            // that was applied on the selected variant (see SCRUM-116).
+            $weeeOrderItem = $orderItem;
+            if ($orderItem->getProductType() === \Magento\ConfigurableProduct\Model\Product\Type\Configurable::TYPE_CODE
+                && $orderItem->getHasChildren()
+            ) {
+                $childOrderItem = reset($orderItem->getChildrenItems());
+                if ($childOrderItem) {
+                    $weeeOrderItem = $childOrderItem;
+                }
+            }
 
             $ratio = $item->getQty() / $orderItemQty;
 
