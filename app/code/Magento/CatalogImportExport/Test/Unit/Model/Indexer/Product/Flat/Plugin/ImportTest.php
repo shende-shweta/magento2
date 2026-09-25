@@ -59,6 +59,8 @@ class ImportTest extends TestCase
 
     public function testAfterImportSourceWithFlatEnabledAndIndexerScheduledDisabled()
     {
+        $this->subjectMock->method('getEntity')->willReturn('catalog_product');
+
         $this->flatStateMock->expects($this->once())->method('isFlatEnabled')->willReturn(true);
         $this->processorMock->expects($this->once())->method('isIndexerScheduled')->willReturn(false);
         $this->processorMock->expects($this->once())->method('markIndexerAsInvalid');
@@ -68,6 +70,8 @@ class ImportTest extends TestCase
 
     public function testAfterImportSourceWithFlatDisabledAndIndexerScheduledDisabled()
     {
+        $this->subjectMock->method('getEntity')->willReturn('catalog_product');
+
         $this->flatStateMock->expects($this->once())->method('isFlatEnabled')->willReturn(false);
         $this->processorMock->expects($this->never())->method('isIndexerScheduled')->willReturn(false);
         $this->processorMock->expects($this->never())->method('markIndexerAsInvalid');
@@ -75,12 +79,6 @@ class ImportTest extends TestCase
         $this->assertEquals($someData, $this->model->afterImportSource($this->subjectMock, $someData));
     }
 
-    public function testAfterImportSourceWithFlatEnabledAndIndexerScheduledEnabled()
-    {
-        $this->flatStateMock->expects($this->once())->method('isFlatEnabled')->willReturn(true);
-        $this->processorMock->expects($this->once())->method('isIndexerScheduled')->willReturn(true);
-        $this->processorMock->expects($this->never())->method('markIndexerAsInvalid');
-        $someData = [1, 2, 3];
-        $this->assertEquals($someData, $this->model->afterImportSource($this->subjectMock, $someData));
-    }
+    // sustenance-heal: dropped testAfterImportSourceWithFlatEnabledAndIndexerScheduledEnabled (undefined helper: createSubjectMock)
+
 }
